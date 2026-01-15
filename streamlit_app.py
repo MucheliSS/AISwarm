@@ -342,35 +342,32 @@ You have access to:
 2. PEER REVIEW CRITIQUES where each expert anonymously reviewed ALL ideas
 
 YOUR TASK - Create a SUPERIOR SYNTHESIS that:
-✓ Integrates the BEST ELEMENTS from multiple original proposals
-✓ Addresses WEAKNESSES identified in peer reviews
-✓ Combines COMPLEMENTARY INSIGHTS across perspectives
-✓ Fills in MISSING ELEMENTS noted by reviewers
-✓ Produces something BETTER than any individual proposal
+- Integrates the BEST ELEMENTS from multiple original proposals
+- Addresses WEAKNESSES identified in peer reviews
+- Combines COMPLEMENTARY INSIGHTS across perspectives
+- Fills in MISSING ELEMENTS noted by reviewers
 
-═══════════════════════════════════════════
 ORIGINAL IDEAS:
 {original_ideas}
 
-═══════════════════════════════════════════
 PEER REVIEW CRITIQUES:
 {peer_critiques}
 
-═══════════════════════════════════════════
+CRITICAL: You MUST respond with ONLY a valid JSON object. No explanations, no markdown, no text before or after. Start your response with {{ and end with }}.
 
-Create a synthesized understanding that represents the collective wisdom AND addresses peer feedback. Format as JSON:
+Respond with this exact JSON structure (fill in the values):
 {{
-  "clarifiedFocus": "refined understanding incorporating peer feedback",
-  "theoreticalFoundations": ["key frameworks, enhanced based on reviews"],
-  "keyTensions": ["unresolved issues, refined by peer critiques"],
-  "criticalQuestions": ["essential questions, improved by reviews"],
-  "integratedPerspectives": "how different perspectives complement each other, addressing weaknesses",
-  "peerReviewInsights": "key insights gained from the peer review process",
-  "recommendedNextSteps": ["what to do next, incorporating peer feedback"]
+  "clarifiedFocus": "your refined understanding here",
+  "theoreticalFoundations": ["framework1", "framework2", "framework3"],
+  "keyTensions": ["tension1", "tension2"],
+  "criticalQuestions": ["question1", "question2", "question3"],
+  "integratedPerspectives": "how perspectives complement each other",
+  "peerReviewInsights": "key insights from peer review",
+  "recommendedNextSteps": ["step1", "step2", "step3"]
 }}"""
 
         response = call_llm(
-            "You are a research synthesis expert who integrates diverse perspectives AND peer review feedback into superior conceptual frameworks.",
+            "You are a JSON-only response bot. You MUST output ONLY valid JSON with no other text, no markdown formatting, no explanations. Start with {{ and end with }}. You synthesize research perspectives into structured JSON.",
             synthesis_prompt,
             SYNTHESIS_MODEL,
             'Synthesizer'
@@ -434,10 +431,13 @@ Create a synthesized understanding that represents the collective wisdom AND add
                 add_log('Using simple brace extraction', 'info')
         
         if json_str is None:
-            st.error("⚠️ Could not find JSON in response. Raw response:")
-            st.code(response[:1000] if len(response) > 1000 else response)
-            add_log('JSON parsing failed - no valid JSON found', 'error')
-            raise ValueError("No valid JSON found in response")
+            # No JSON found at all - show debugging info
+            st.warning("⚠️ No JSON structure found in response")
+            with st.expander("🔍 Raw LLM Response (for debugging)"):
+                st.code(response[:2000] if len(response) > 2000 else response)
+            add_log('No JSON braces found in response', 'error')
+            # Set empty so fallback kicks in
+            json_str = ""
 
         add_log(f'Extracted JSON (length: {len(json_str)} chars)', 'info')
 
@@ -458,10 +458,25 @@ Create a synthesized understanding that represents the collective wisdom AND add
                 continue
         
         if synthesis is None:
-            st.error(f"⚠️ JSON parsing error after all attempts")
-            st.code(json_str[:1000] if len(json_str) > 1000 else json_str)
-            add_log(f'JSON decode error after all repair attempts', 'error')
-            raise ValueError("Could not parse JSON after multiple attempts")
+            # FALLBACK: Create synthesis from raw text response
+            add_log('JSON parsing failed, attempting text fallback...', 'info')
+            st.warning("⚠️ LLM did not return valid JSON. Creating synthesis from text response...")
+            
+            # Show raw response for debugging
+            with st.expander("🔍 Raw LLM Response (for debugging)"):
+                st.code(response[:2000] if len(response) > 2000 else response)
+            
+            # Create a basic synthesis from the text
+            synthesis = {
+                "clarifiedFocus": response[:500] if response else "Synthesis could not be generated",
+                "theoreticalFoundations": ["See raw response for details"],
+                "keyTensions": ["JSON parsing failed - review raw response"],
+                "criticalQuestions": ["Why did the LLM not return JSON?"],
+                "integratedPerspectives": "The LLM response was not in JSON format. Please review the raw response above for insights.",
+                "peerReviewInsights": "Could not extract structured insights",
+                "recommendedNextSteps": ["Review raw response", "Try running synthesis again", "Check if model supports JSON output"]
+            }
+            add_log('Created fallback synthesis from text', 'info')
 
         required_fields = ['clarifiedFocus', 'theoreticalFoundations', 'keyTensions',
                           'criticalQuestions', 'integratedPerspectives', 'recommendedNextSteps']
