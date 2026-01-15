@@ -6,7 +6,7 @@ from datetime import datetime
 
 # Page config
 st.set_page_config(
-    page_title="Interactive Research Swarm",
+    page_title="AI Swarm Council",
     page_icon="🧠",
     layout="wide"
 )
@@ -16,6 +16,8 @@ if 'api_key' not in st.session_state:
     st.session_state.api_key = ''
 if 'exploration' not in st.session_state:
     st.session_state.exploration = None
+if 'peer_reviews' not in st.session_state:
+    st.session_state.peer_reviews = None
 if 'synthesis' not in st.session_state:
     st.session_state.synthesis = None
 if 'proposal' not in st.session_state:
@@ -105,22 +107,23 @@ def call_llm(system_prompt, user_prompt, model, agent_name):
         raise e
 
 def explore_topic(user_topic):
-    """Stage 1: Explore topic with swarm and synthesize"""
+    """Stage 1: Diverse Idea Generation - Each agent generates unique insights"""
     st.session_state.exploration = None
+    st.session_state.peer_reviews = None
     st.session_state.synthesis = None
     st.session_state.proposal = None
     st.session_state.logs = []
-    
-    add_log('🧠 Swarm exploring your research topic...', 'info')
+
+    add_log('🧠 Stage 1: Diverse Idea Generation starting...', 'info')
     explorations = []
-    
+
     progress_bar = st.progress(0)
     status_text = st.empty()
-    
+
     for idx, agent in enumerate(SWARM_AGENTS):
         status_text.text(f"Consulting {agent['name']}...")
         add_log(f"Consulting {agent['name']}...", 'progress')
-        
+
         prompt = f"""A researcher is interested in exploring this topic:
 
 "{user_topic}"
@@ -140,7 +143,7 @@ Be concise but insightful. Format as JSON:
   "importantQuestions": ["question1", "question2", "question3"],
   "considerations": "key challenges or factors to consider from your perspective"
 }}"""
-        
+
         try:
             response = call_llm(agent['system_prompt'], prompt, agent['model'], agent['name'])
             # Extract JSON from response
@@ -159,74 +162,231 @@ Be concise but insightful. Format as JSON:
                 add_log(f"✅ {agent['name']} analysis complete", 'success')
         except Exception as e:
             add_log(f"⚠️ {agent['name']} analysis failed", 'error')
-        
+
         progress_bar.progress((idx + 1) / len(SWARM_AGENTS))
-    
+
     if not explorations:
         st.error("No analyses generated")
         return
-    
+
     st.session_state.exploration = explorations
-    add_log('✅ Exploration complete!', 'success')
-    
-    # Automatically synthesize
-    status_text.text("✨ Synthesizing collective insights...")
-    add_log('✨ Synthesizing collective insights...', 'info')
-    
-    synthesis_prompt = f"""A researcher asked about: "{user_topic}"
+    add_log('✅ Stage 1: Diverse Idea Generation complete!', 'success')
 
-Multiple experts explored this from different perspectives. Synthesize their collective wisdom into:
+    progress_bar.empty()
+    status_text.empty()
 
-1. A CLARIFIED understanding of what this research area is really about
-2. The CORE THEORETICAL foundations to build on
-3. The KEY TENSIONS or fuzzy areas that need resolution
-4. CRITICAL QUESTIONS that should guide the research
-5. A synthesis of considerations across perspectives
+def peer_review_ideas():
+    """Stage 2: Anonymous Peer Review - Each agent reviews ALL ideas without knowing who created what"""
+    if not st.session_state.exploration:
+        return
 
-EXPERT PERSPECTIVES:
-{chr(10).join([f'''
-{exp['agentName']}:
+    add_log('👥 Stage 2: Anonymous Peer Review starting...', 'info')
+
+    # Shuffle ideas to anonymize them
+    import random
+    anonymized_ideas = []
+    for idx, exp in enumerate(st.session_state.exploration):
+        anonymized_ideas.append({
+            'ideaNumber': idx + 1,
+            'keyConcepts': exp['keyConcepts'],
+            'theoreticalFrameworks': exp['theoreticalFrameworks'],
+            'whatsClear': exp['whatsClear'],
+            'whatsFuzzy': exp['whatsFuzzy'],
+            'importantQuestions': exp['importantQuestions'],
+            'considerations': exp['considerations']
+        })
+
+    # Shuffle to anonymize
+    random.shuffle(anonymized_ideas)
+
+    # Create summary of all ideas for review
+    ideas_summary = "\n\n".join([
+        f"""IDEA #{idea['ideaNumber']}:
+- Key Concepts: {', '.join(idea['keyConcepts'])}
+- Frameworks: {', '.join(idea['theoreticalFrameworks'])}
+- What's Clear: {idea['whatsClear']}
+- What's Fuzzy: {idea['whatsFuzzy']}
+- Important Questions: {'; '.join(idea['importantQuestions'])}
+- Considerations: {idea['considerations']}"""
+        for idea in anonymized_ideas
+    ])
+
+    reviews = []
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
+    # Each agent reviews ALL ideas
+    for idx, agent in enumerate(SWARM_AGENTS):
+        status_text.text(f"{agent['name']} reviewing all proposals...")
+        add_log(f"{agent['name']} conducting peer review...", 'progress')
+
+        prompt = f"""You are conducting an ANONYMOUS PEER REVIEW of research exploration proposals.
+
+Below are {len(anonymized_ideas)} different proposals exploring the same research topic. Your identity as a reviewer is anonymous, and you DO NOT know who created each proposal.
+
+YOUR TASK:
+1. For EACH proposal, identify:
+   - Key STRENGTHS (what's valuable/insightful)
+   - WEAKNESSES or gaps (what's missing/unclear)
+   - MISSING ELEMENTS (what should be added)
+
+2. RANK all proposals from strongest (1) to weakest ({len(anonymized_ideas)})
+
+Be objective and constructive. Focus on the quality of ideas, not the author.
+
+PROPOSALS TO REVIEW:
+{ideas_summary}
+
+Format your review as JSON:
+{{
+  "reviews": [
+    {{
+      "ideaNumber": 1,
+      "strengths": ["strength1", "strength2"],
+      "weaknesses": ["weakness1", "weakness2"],
+      "missingElements": ["missing1", "missing2"]
+    }},
+    ... (one for each idea)
+  ],
+  "ranking": [1, 3, 2, 5, 4],
+  "overallCommentary": "brief synthesis of what patterns you see across proposals"
+}}
+
+The ranking array should list idea numbers from strongest to weakest."""
+
+        try:
+            response = call_llm(
+                f"{agent['system_prompt']} You are now acting as an anonymous peer reviewer.",
+                prompt,
+                agent['model'],
+                agent['name']
+            )
+
+            # Extract JSON from response
+            json_start = response.find('{')
+            json_end = response.rfind('}') + 1
+            if json_start >= 0 and json_end > json_start:
+                json_str = response[json_start:json_end]
+                review = json.loads(json_str)
+                reviews.append({
+                    'reviewerId': agent['id'],
+                    'reviewerName': agent['name'],
+                    'icon': agent['icon'],
+                    'model': agent['model'],
+                    **review
+                })
+                add_log(f"✅ {agent['name']} peer review complete", 'success')
+        except Exception as e:
+            add_log(f"⚠️ {agent['name']} peer review failed: {str(e)}", 'error')
+
+        progress_bar.progress((idx + 1) / len(SWARM_AGENTS))
+
+    if not reviews:
+        st.error("No peer reviews generated")
+        return
+
+    st.session_state.peer_reviews = reviews
+    add_log('✅ Stage 2: Anonymous Peer Review complete!', 'success')
+
+    progress_bar.empty()
+    status_text.empty()
+
+def synthesize_with_reviews(user_topic):
+    """Stage 3: Synthesis - Create refined synthesis integrating original ideas AND peer critiques"""
+    if not st.session_state.exploration or not st.session_state.peer_reviews:
+        return
+
+    add_log('✨ Stage 3: Synthesis with Peer Reviews starting...', 'info')
+
+    # Prepare original ideas
+    original_ideas = "\n\n".join([
+        f"""{exp['agentName']} ({exp['icon']}):
 - Key Concepts: {', '.join(exp['keyConcepts'])}
 - Frameworks: {', '.join(exp['theoreticalFrameworks'])}
 - What's Clear: {exp['whatsClear']}
 - What's Fuzzy: {exp['whatsFuzzy']}
 - Questions: {'; '.join(exp['importantQuestions'])}
-- Considerations: {exp['considerations']}
-''' for exp in explorations])}
+- Considerations: {exp['considerations']}"""
+        for exp in st.session_state.exploration
+    ])
 
-Create a synthesized exploration that represents the collective wisdom. Format as JSON:
+    # Prepare peer review critiques
+    peer_critiques_list = []
+    for review in st.session_state.peer_reviews:
+        detailed_reviews = []
+        for r in review['reviews']:
+            detailed = f"  Idea #{r['ideaNumber']}:"
+            detailed += f"\n    ✓ Strengths: {'; '.join(r['strengths'])}"
+            detailed += f"\n    ✗ Weaknesses: {'; '.join(r['weaknesses'])}"
+            detailed += f"\n    + Missing: {'; '.join(r['missingElements'])}"
+            detailed_reviews.append(detailed)
+
+        peer_critique = f"""{review['reviewerName']} ({review['icon']}) - Peer Review:
+Overall Commentary: {review['overallCommentary']}
+Ranking (strongest to weakest): {', '.join([f"Idea #{i}" for i in review['ranking']])}
+
+Detailed Reviews:
+{chr(10).join(detailed_reviews)}"""
+        peer_critiques_list.append(peer_critique)
+
+    peer_critiques = "\n\n".join(peer_critiques_list)
+
+    synthesis_prompt = f"""A researcher asked about: "{user_topic}"
+
+You have access to:
+1. ORIGINAL IDEAS from 5 different expert perspectives
+2. PEER REVIEW CRITIQUES where each expert anonymously reviewed ALL ideas
+
+YOUR TASK - Create a SUPERIOR SYNTHESIS that:
+✓ Integrates the BEST ELEMENTS from multiple original proposals
+✓ Addresses WEAKNESSES identified in peer reviews
+✓ Combines COMPLEMENTARY INSIGHTS across perspectives
+✓ Fills in MISSING ELEMENTS noted by reviewers
+✓ Produces something BETTER than any individual proposal
+
+═══════════════════════════════════════════
+ORIGINAL IDEAS:
+{original_ideas}
+
+═══════════════════════════════════════════
+PEER REVIEW CRITIQUES:
+{peer_critiques}
+
+═══════════════════════════════════════════
+
+Create a synthesized understanding that represents the collective wisdom AND addresses peer feedback. Format as JSON:
 {{
-  "clarifiedFocus": "refined understanding of what this research is really about",
-  "theoreticalFoundations": ["key frameworks to build on"],
-  "keyTensions": ["unresolved issues or fuzzy areas that need attention"],
-  "criticalQuestions": ["essential questions to address"],
-  "integratedPerspectives": "how different perspectives complement each other",
-  "recommendedNextSteps": ["what the researcher should do next to develop this"]
+  "clarifiedFocus": "refined understanding incorporating peer feedback",
+  "theoreticalFoundations": ["key frameworks, enhanced based on reviews"],
+  "keyTensions": ["unresolved issues, refined by peer critiques"],
+  "criticalQuestions": ["essential questions, improved by reviews"],
+  "integratedPerspectives": "how different perspectives complement each other, addressing weaknesses",
+  "peerReviewInsights": "key insights gained from the peer review process",
+  "recommendedNextSteps": ["what to do next, incorporating peer feedback"]
 }}"""
-    
+
     try:
-        response = call_llm(
-            "You are a research synthesis expert who integrates diverse perspectives into coherent understanding.",
-            synthesis_prompt,
-            SYNTHESIS_MODEL,
-            'Synthesizer'
-        )
-        
-        json_start = response.find('{')
-        json_end = response.rfind('}') + 1
-        if json_start >= 0 and json_end > json_start:
-            json_str = response[json_start:json_end]
-            synthesis = json.loads(json_str)
-            st.session_state.synthesis = synthesis
-            add_log('✅ Synthesis complete!', 'success')
+        with st.spinner('Creating synthesis...'):
+            response = call_llm(
+                "You are a research synthesis expert who integrates diverse perspectives AND peer review feedback into superior conceptual frameworks.",
+                synthesis_prompt,
+                SYNTHESIS_MODEL,
+                'Synthesizer'
+            )
+
+            json_start = response.find('{')
+            json_end = response.rfind('}') + 1
+            if json_start >= 0 and json_end > json_start:
+                json_str = response[json_start:json_end]
+                synthesis = json.loads(json_str)
+                st.session_state.synthesis = synthesis
+                add_log('✅ Stage 3: Synthesis complete!', 'success')
     except Exception as e:
+        st.error(f"Synthesis error: {str(e)}")
         add_log(f"⚠️ Synthesis error: {str(e)}", 'error')
-    
-    progress_bar.empty()
-    status_text.empty()
 
 def generate_proposal(user_topic):
-    """Generate research proposal"""
+    """Stage 4: Research Proposal (Optional)"""
     if not st.session_state.synthesis:
         return
     
@@ -272,8 +432,8 @@ Generate a concrete research proposal. Format as JSON:
         add_log(f"⚠️ Proposal error: {str(e)}", 'error')
 
 # Main UI
-st.title("🧠 Interactive Research Swarm")
-st.markdown("Collaborate with AI agents to explore, clarify, and develop your research ideas")
+st.title("🧠 AI Swarm Council")
+st.markdown("**4-Stage Collaborative Intelligence:** Diverse idea generation → Anonymous peer review → Superior synthesis → Research proposal")
 
 # Sidebar for API key and settings
 with st.sidebar:
@@ -318,8 +478,11 @@ with st.sidebar:
     
     # Cost estimate
     st.subheader("💰 Cost Estimate")
-    st.caption("Typical exploration: **$0.10-0.30**")
-    st.caption("Uses 5 models + synthesis")
+    st.caption("Full 4-stage process: **$0.30-0.60**")
+    st.caption("Stage 1: 5 models")
+    st.caption("Stage 2: 5 models (peer review)")
+    st.caption("Stage 3: 1 model (synthesis)")
+    st.caption("Stage 4: 1 model (optional proposal)")
     
     st.divider()
     
@@ -339,25 +502,33 @@ with st.expander("🔍 Detailed Model Configuration", expanded=False):
     st.markdown(f"- ✨ **Synthesis & Proposal**: `{SYNTHESIS_MODEL}`")
     st.caption("All models accessed via OpenRouter API")
 
-# Process flow indicator
-col1, col2, col3 = st.columns(3)
+# Process flow indicator - 4 STAGES
+st.markdown("### 🔄 AI Swarm Council Process")
+col1, col2, col3, col4 = st.columns(4)
+
 with col1:
     if st.session_state.exploration is None:
-        st.info("📝 **Step 1:** Enter Your Topic")
+        st.info("**Stage 1**\n\n🧠 Diverse Ideas")
     else:
-        st.success("✅ Step 1 Complete")
+        st.success("**Stage 1** ✅\n\n🧠 Ideas Generated")
 
 with col2:
-    if st.session_state.synthesis is None:
-        st.info("🧠 **Step 2:** Explore & Synthesize")
+    if st.session_state.peer_reviews is None:
+        st.info("**Stage 2**\n\n👥 Peer Review")
     else:
-        st.success("✅ Step 2 Complete")
+        st.success("**Stage 2** ✅\n\n👥 Reviews Done")
 
 with col3:
-    if st.session_state.proposal is None:
-        st.info("📄 **Step 3:** Proposal (Optional)")
+    if st.session_state.synthesis is None:
+        st.info("**Stage 3**\n\n✨ Synthesis")
     else:
-        st.success("✅ Step 3 Complete")
+        st.success("**Stage 3** ✅\n\n✨ Synthesized")
+
+with col4:
+    if st.session_state.proposal is None:
+        st.info("**Stage 4**\n\n📄 Proposal")
+    else:
+        st.success("**Stage 4** ✅\n\n📄 Complete")
 
 st.divider()
 
@@ -383,14 +554,44 @@ if st.session_state.exploration is None:
         if not st.session_state.api_key:
             st.caption("⚠️ Please enter your OpenRouter API key in the sidebar first")
         else:
-            st.caption("💡 The swarm will explore your topic and automatically synthesize collective insights")
+            st.caption("💡 Stage 1: 5 agents with different perspectives will generate unique insights from their cognitive/clinical/assessment/technology/cross-cultural lenses")
 
 else:
     # Show topic being explored
     st.info(f"**Your Topic:** {st.session_state.get('current_topic', 'Unknown')}")
-    
-    if st.button("🔄 Start Over"):
-        for key in ['exploration', 'synthesis', 'proposal', 'logs', 'current_topic']:
+
+    # Stage transition buttons
+    if st.session_state.exploration and not st.session_state.peer_reviews:
+        st.success("✅ Stage 1 Complete: Ideas Generated!")
+        st.markdown("**Next Step:** Conduct anonymous peer review where each agent critiques all proposals")
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            if st.button("👥 Start Peer Review (Stage 2)", type="primary"):
+                peer_review_ideas()
+                st.rerun()
+        with col2:
+            st.caption("Each agent will anonymously review all 5 proposals, identifying strengths, weaknesses, and missing elements")
+
+    elif st.session_state.peer_reviews and not st.session_state.synthesis:
+        st.success("✅ Stage 2 Complete: Peer Reviews Done!")
+        st.markdown("**Next Step:** Create superior synthesis by integrating best ideas and addressing peer feedback")
+        col1, col2 = st.columns([1, 3])
+        with col1:
+            if st.button("✨ Create Synthesis (Stage 3)", type="primary"):
+                synthesize_with_reviews(st.session_state.current_topic)
+                st.rerun()
+        with col2:
+            st.caption("Combines the strongest elements from all proposals while addressing weaknesses identified in reviews")
+
+    elif st.session_state.synthesis and not st.session_state.proposal:
+        st.success("✅ Stage 3 Complete: Synthesis Ready!")
+        st.markdown("**Optional:** Generate a concrete research proposal based on the synthesized insights")
+        # Proposal button is shown in the synthesis display section
+
+    # Start over button (always available)
+    st.divider()
+    if st.button("🔄 Start Over with New Topic"):
+        for key in ['exploration', 'peer_reviews', 'synthesis', 'proposal', 'logs', 'current_topic']:
             if key in st.session_state:
                 del st.session_state[key]
         st.rerun()
@@ -414,7 +615,9 @@ if st.session_state.logs:
 
 # Display exploration results
 if st.session_state.exploration:
-    st.subheader("🔍 Individual Agent Perspectives")
+    st.divider()
+    st.subheader("🧠 Stage 1: Diverse Idea Generation")
+    st.caption("Each agent explores the topic from their unique perspective")
     
     tabs = st.tabs([f"{agent['icon']} {agent['agentName']}" 
                     for agent in st.session_state.exploration])
@@ -448,10 +651,55 @@ if st.session_state.exploration:
             st.markdown("**💡 Considerations:**")
             st.info(agent_data['considerations'])
 
+# Display peer reviews
+if st.session_state.peer_reviews:
+    st.divider()
+    st.subheader("👥 Stage 2: Anonymous Peer Reviews (Karpathy-style)")
+    st.caption("Each agent reviewed ALL proposals anonymously, identifying strengths, weaknesses, and missing elements")
+
+    tabs = st.tabs([f"{review['icon']} {review['reviewerName']}"
+                    for review in st.session_state.peer_reviews])
+
+    for idx, review_data in enumerate(st.session_state.peer_reviews):
+        with tabs[idx]:
+            # Show which model was used
+            st.caption(f"🤖 Model: `{review_data.get('model', 'Unknown')}`")
+
+            # Overall commentary
+            st.markdown("### 📝 Overall Commentary")
+            st.info(review_data['overallCommentary'])
+
+            # Ranking
+            st.markdown("### 🏆 Ranking (Strongest to Weakest)")
+            ranking_str = " → ".join([f"Idea #{i}" for i in review_data['ranking']])
+            st.success(ranking_str)
+
+            # Detailed reviews for each idea
+            st.markdown("### 📊 Detailed Reviews")
+            for review in review_data['reviews']:
+                with st.expander(f"Idea #{review['ideaNumber']} - Detailed Critique"):
+                    col1, col2, col3 = st.columns(3)
+
+                    with col1:
+                        st.markdown("**✅ Strengths:**")
+                        for strength in review['strengths']:
+                            st.markdown(f"- {strength}")
+
+                    with col2:
+                        st.markdown("**⚠️ Weaknesses:**")
+                        for weakness in review['weaknesses']:
+                            st.markdown(f"- {weakness}")
+
+                    with col3:
+                        st.markdown("**➕ Missing Elements:**")
+                        for missing in review['missingElements']:
+                            st.markdown(f"- {missing}")
+
 # Display synthesis
 if st.session_state.synthesis:
     st.divider()
-    st.subheader("✨ Synthesized Understanding")
+    st.subheader("✨ Stage 3: Superior Synthesis")
+    st.caption("Integrates best elements from multiple proposals while addressing peer-identified weaknesses")
     
     synthesis = st.session_state.synthesis
     
@@ -477,7 +725,12 @@ if st.session_state.synthesis:
     # Integrated Perspectives
     st.markdown("### 🔗 Integrated Perspectives")
     st.write(synthesis['integratedPerspectives'])
-    
+
+    # Peer Review Insights (NEW)
+    if 'peerReviewInsights' in synthesis:
+        st.markdown("### 🔍 Peer Review Insights")
+        st.write(synthesis['peerReviewInsights'])
+
     # Recommended Next Steps
     st.markdown("### 🚀 Recommended Next Steps")
     for idx, step in enumerate(synthesis['recommendedNextSteps'], 1):
@@ -501,7 +754,7 @@ if st.session_state.synthesis:
 # Display proposal
 if st.session_state.proposal:
     st.divider()
-    st.subheader("📄 Research Proposal")
+    st.subheader("📄 Stage 4: Research Proposal (Optional)")
     
     proposal = st.session_state.proposal
     
@@ -523,5 +776,4 @@ if st.session_state.proposal:
 
 # Footer
 st.divider()
-st.caption("Powered by multiple LLMs via OpenRouter API | Models: Claude, GPT-4o, Gemini, Llama")
-
+st.caption("🧠 **AI Swarm Council** - 4-Stage Collaborative Intelligence System | Powered by multiple LLMs via OpenRouter API")
