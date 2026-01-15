@@ -76,7 +76,7 @@ def add_log(message, log_type='info'):
         'type': log_type
     })
 
-def call_llm(system_prompt, user_prompt, model, agent_name):
+def call_llm(system_prompt, user_prompt, model, agent_name, max_tokens=2000):
     """Call LLM via OpenRouter API"""
     try:
         api_key = st.session_state.api_key
@@ -86,7 +86,10 @@ def call_llm(system_prompt, user_prompt, model, agent_name):
         client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key,
+            timeout=120.0,  # 2 minute timeout
         )
+        
+        add_log(f"Calling {agent_name} with model {model}...", 'info')
         
         response = client.chat.completions.create(
             model=model,
@@ -94,13 +97,27 @@ def call_llm(system_prompt, user_prompt, model, agent_name):
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
             ],
-            max_tokens=2000,
+            max_tokens=max_tokens,
             temperature=0.7,
         )
         
-        return response.choices[0].message.content
+        content = response.choices[0].message.content
+        if not content:
+            add_log(f"Warning: Empty response from {agent_name}", 'error')
+            return ""
+        
+        add_log(f"Received {len(content)} chars from {agent_name}", 'info')
+        return content
     except Exception as e:
-        add_log(f"Error from {agent_name}: {str(e)}", 'error')
+        error_msg = str(e)
+        add_log(f"Error from {agent_name}: {error_msg}", 'error')
+        # Show more details for common errors
+        if "timeout" in error_msg.lower():
+            add_log(f"The model {model} timed out. Consider using a faster model.", 'error')
+        elif "rate" in error_msg.lower():
+            add_log("Rate limit hit. Please wait and try again.", 'error')
+        elif "credits" in error_msg.lower() or "balance" in error_msg.lower():
+            add_log("Insufficient credits on OpenRouter. Please add funds.", 'error')
         raise e
 
 def explore_topic(user_topic):
@@ -367,10 +384,11 @@ Respond with this exact JSON structure (fill in the values):
 }}"""
 
         response = call_llm(
-            "You are a JSON-only response bot. You MUST output ONLY valid JSON with no other text, no markdown formatting, no explanations. Start with {{ and end with }}. You synthesize research perspectives into structured JSON.",
+            "You are a JSON-only response bot. You MUST output ONLY valid JSON with no other text, no markdown formatting, no explanations. Start with { and end with }. You synthesize research perspectives into structured JSON.",
             synthesis_prompt,
             SYNTHESIS_MODEL,
-            'Synthesizer'
+            'Synthesizer',
+            max_tokens=4000  # Increased for synthesis
         )
 
         status_text.text("Parsing response...")
