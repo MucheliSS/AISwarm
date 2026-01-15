@@ -31,40 +31,40 @@ SWARM_AGENTS = [
         'id': 'cognitive',
         'name': 'Cognitive Scientist',
         'icon': '🧠',
-        'model': 'anthropic/claude-sonnet-4.5',  # Claude Sonnet 4.5 - Best reasoning
+        'model': 'anthropic/claude-sonnet-4.5',
         'system_prompt': 'You are an expert in cognitive science and educational psychology. Help explore research topics by identifying relevant cognitive theories, mental models, and learning mechanisms.'
     },
     {
         'id': 'clinical',
         'name': 'Clinical Educator',
         'icon': '👨‍⚕️',
-        'model': 'google/gemini-3-flash-preview',  # Gemini 3 Flash - Fast, practical
+        'model': 'google/gemini-3-flash-preview',
         'system_prompt': 'You are a seasoned clinical educator. Help explore research topics by considering practical implementation, feasibility, and real-world constraints.'
     },
     {
         'id': 'assessment',
         'name': 'Assessment Specialist',
         'icon': '📊',
-        'model': 'openai/gpt-oss-120b',  # GPT-OSS-120B - Assessment expertise
+        'model': 'openai/gpt-oss-120b',
         'system_prompt': 'You are an expert in educational measurement. Help explore research topics by considering how constructs might be measured, what validity issues exist, and assessment challenges.'
     },
     {
         'id': 'technology',
         'name': 'Technology Innovator',
         'icon': '💻',
-        'model': 'anthropic/claude-sonnet-4.5',  # Claude Sonnet 4.5 - Innovation
+        'model': 'anthropic/claude-sonnet-4.5',
         'system_prompt': 'You are an educational technologist. Help explore research topics by identifying relevant technologies, novel methods, and innovative approaches.'
     },
     {
         'id': 'crosscultural',
         'name': 'Cross-Cultural Researcher',
         'icon': '🌍',
-        'model': 'z-ai/glm-4.7',  # GLM 4.7 - Chinese model for global perspective
+        'model': 'z-ai/glm-4.7',
         'system_prompt': 'You are focused on equity and global perspectives. Help explore research topics by considering cultural contexts, power dynamics, and generalizability across diverse populations.'
     }
 ]
 
-# Synthesis and proposal model (use the most capable)
+# Synthesis and proposal model
 SYNTHESIS_MODEL = 'anthropic/claude-sonnet-4.5'
 
 def add_log(message, log_type='info'):
@@ -79,18 +79,15 @@ def add_log(message, log_type='info'):
 def call_llm(system_prompt, user_prompt, model, agent_name):
     """Call LLM via OpenRouter API"""
     try:
-        # Get API key from session state (user-provided)
         api_key = st.session_state.api_key
         if not api_key:
             raise ValueError("API key not provided. Please enter your OpenRouter API key.")
         
-        # Initialize OpenRouter client (OpenAI-compatible)
         client = OpenAI(
             base_url="https://openrouter.ai/api/v1",
             api_key=api_key,
         )
         
-        # Call the API
         response = client.chat.completions.create(
             model=model,
             messages=[
@@ -107,7 +104,7 @@ def call_llm(system_prompt, user_prompt, model, agent_name):
         raise e
 
 def explore_topic(user_topic):
-    """Stage 1: Diverse Idea Generation - Each agent generates unique insights"""
+    """Stage 1: Diverse Idea Generation"""
     st.session_state.exploration = None
     st.session_state.peer_reviews = None
     st.session_state.synthesis = None
@@ -146,7 +143,6 @@ Be concise but insightful. Format as JSON:
 
         try:
             response = call_llm(agent['system_prompt'], prompt, agent['model'], agent['name'])
-            # Extract JSON from response
             json_start = response.find('{')
             json_end = response.rfind('}') + 1
             if json_start >= 0 and json_end > json_start:
@@ -176,13 +172,12 @@ Be concise but insightful. Format as JSON:
     status_text.empty()
 
 def peer_review_ideas():
-    """Stage 2: Anonymous Peer Review - Each agent reviews ALL ideas without knowing who created what"""
+    """Stage 2: Anonymous Peer Review"""
     if not st.session_state.exploration:
         return
 
     add_log('👥 Stage 2: Anonymous Peer Review starting...', 'info')
 
-    # Shuffle ideas to anonymize them
     import random
     anonymized_ideas = []
     for idx, exp in enumerate(st.session_state.exploration):
@@ -196,10 +191,8 @@ def peer_review_ideas():
             'considerations': exp['considerations']
         })
 
-    # Shuffle to anonymize
     random.shuffle(anonymized_ideas)
 
-    # Create summary of all ideas for review
     ideas_summary = "\n\n".join([
         f"""IDEA #{idea['ideaNumber']}:
 - Key Concepts: {', '.join(idea['keyConcepts'])}
@@ -215,7 +208,6 @@ def peer_review_ideas():
     progress_bar = st.progress(0)
     status_text = st.empty()
 
-    # Each agent reviews ALL ideas
     for idx, agent in enumerate(SWARM_AGENTS):
         status_text.text(f"{agent['name']} reviewing all proposals...")
         add_log(f"{agent['name']} conducting peer review...", 'progress')
@@ -262,7 +254,6 @@ The ranking array should list idea numbers from strongest to weakest."""
                 agent['name']
             )
 
-            # Extract JSON from response
             json_start = response.find('{')
             json_end = response.rfind('}') + 1
             if json_start >= 0 and json_end > json_start:
@@ -292,46 +283,59 @@ The ranking array should list idea numbers from strongest to weakest."""
     status_text.empty()
 
 def synthesize_with_reviews(user_topic):
-    """Stage 3: Synthesis - Create refined synthesis integrating original ideas AND peer critiques"""
+    """Stage 3: Synthesis - FIXED with better error handling"""
     if not st.session_state.exploration or not st.session_state.peer_reviews:
+        st.error("Missing exploration or peer reviews data!")
         return
 
     add_log('✨ Stage 3: Synthesis with Peer Reviews starting...', 'info')
 
-    # Prepare original ideas
-    original_ideas = "\n\n".join([
-        f"""{exp['agentName']} ({exp['icon']}):
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+
+    try:
+        status_text.text("Preparing original ideas...")
+        progress_bar.progress(0.1)
+
+        original_ideas = "\n\n".join([
+            f"""{exp['agentName']} ({exp['icon']}):
 - Key Concepts: {', '.join(exp['keyConcepts'])}
 - Frameworks: {', '.join(exp['theoreticalFrameworks'])}
 - What's Clear: {exp['whatsClear']}
 - What's Fuzzy: {exp['whatsFuzzy']}
 - Questions: {'; '.join(exp['importantQuestions'])}
 - Considerations: {exp['considerations']}"""
-        for exp in st.session_state.exploration
-    ])
+            for exp in st.session_state.exploration
+        ])
 
-    # Prepare peer review critiques
-    peer_critiques_list = []
-    for review in st.session_state.peer_reviews:
-        detailed_reviews = []
-        for r in review['reviews']:
-            detailed = f"  Idea #{r['ideaNumber']}:"
-            detailed += f"\n    ✓ Strengths: {'; '.join(r['strengths'])}"
-            detailed += f"\n    ✗ Weaknesses: {'; '.join(r['weaknesses'])}"
-            detailed += f"\n    + Missing: {'; '.join(r['missingElements'])}"
-            detailed_reviews.append(detailed)
+        status_text.text("Preparing peer review critiques...")
+        progress_bar.progress(0.2)
 
-        peer_critique = f"""{review['reviewerName']} ({review['icon']}) - Peer Review:
+        peer_critiques_list = []
+        for review in st.session_state.peer_reviews:
+            detailed_reviews = []
+            for r in review['reviews']:
+                detailed = f"  Idea #{r['ideaNumber']}:"
+                detailed += f"\n    ✓ Strengths: {'; '.join(r['strengths'])}"
+                detailed += f"\n    ✗ Weaknesses: {'; '.join(r['weaknesses'])}"
+                detailed += f"\n    + Missing: {'; '.join(r['missingElements'])}"
+                detailed_reviews.append(detailed)
+
+            peer_critique = f"""{review['reviewerName']} ({review['icon']}) - Peer Review:
 Overall Commentary: {review['overallCommentary']}
 Ranking (strongest to weakest): {', '.join([f"Idea #{i}" for i in review['ranking']])}
 
 Detailed Reviews:
 {chr(10).join(detailed_reviews)}"""
-        peer_critiques_list.append(peer_critique)
+            peer_critiques_list.append(peer_critique)
 
-    peer_critiques = "\n\n".join(peer_critiques_list)
+        peer_critiques = "\n\n".join(peer_critiques_list)
 
-    synthesis_prompt = f"""A researcher asked about: "{user_topic}"
+        status_text.text("Calling synthesis model (this may take 30-60 seconds)...")
+        progress_bar.progress(0.3)
+        add_log('Calling synthesis model...', 'info')
+
+        synthesis_prompt = f"""A researcher asked about: "{user_topic}"
 
 You have access to:
 1. ORIGINAL IDEAS from 5 different expert perspectives
@@ -365,28 +369,67 @@ Create a synthesized understanding that represents the collective wisdom AND add
   "recommendedNextSteps": ["what to do next, incorporating peer feedback"]
 }}"""
 
-    try:
-        with st.spinner('Creating synthesis...'):
-            response = call_llm(
-                "You are a research synthesis expert who integrates diverse perspectives AND peer review feedback into superior conceptual frameworks.",
-                synthesis_prompt,
-                SYNTHESIS_MODEL,
-                'Synthesizer'
-            )
+        response = call_llm(
+            "You are a research synthesis expert who integrates diverse perspectives AND peer review feedback into superior conceptual frameworks.",
+            synthesis_prompt,
+            SYNTHESIS_MODEL,
+            'Synthesizer'
+        )
 
-            json_start = response.find('{')
-            json_end = response.rfind('}') + 1
-            if json_start >= 0 and json_end > json_start:
-                json_str = response[json_start:json_end]
-                synthesis = json.loads(json_str)
-                st.session_state.synthesis = synthesis
-                add_log('✅ Stage 3: Synthesis complete!', 'success')
+        status_text.text("Parsing response...")
+        progress_bar.progress(0.8)
+        add_log('Received response, parsing...', 'info')
+
+        if not response:
+            raise ValueError("Empty response from synthesis model")
+
+        json_start = response.find('{')
+        json_end = response.rfind('}') + 1
+
+        if json_start < 0 or json_end <= json_start:
+            st.error("⚠️ Could not find JSON in response. Raw response:")
+            st.code(response[:500])
+            add_log('JSON parsing failed - no valid JSON found', 'error')
+            raise ValueError("No valid JSON found in response")
+
+        json_str = response[json_start:json_end]
+        add_log(f'Extracted JSON (length: {len(json_str)} chars)', 'info')
+
+        try:
+            synthesis = json.loads(json_str)
+        except json.JSONDecodeError as je:
+            st.error(f"⚠️ JSON parsing error: {str(je)}")
+            st.code(json_str[:500])
+            add_log(f'JSON decode error: {str(je)}', 'error')
+            raise
+
+        required_fields = ['clarifiedFocus', 'theoreticalFoundations', 'keyTensions',
+                          'criticalQuestions', 'integratedPerspectives', 'recommendedNextSteps']
+        missing_fields = [f for f in required_fields if f not in synthesis]
+        if missing_fields:
+            st.warning(f"⚠️ Synthesis missing fields: {', '.join(missing_fields)}")
+            add_log(f'Missing fields: {missing_fields}', 'error')
+
+        st.session_state.synthesis = synthesis
+        progress_bar.progress(1.0)
+        status_text.text("Synthesis complete!")
+        add_log('✅ Stage 3: Synthesis complete!', 'success')
+
+        progress_bar.empty()
+        status_text.empty()
+
     except Exception as e:
-        st.error(f"Synthesis error: {str(e)}")
-        add_log(f"⚠️ Synthesis error: {str(e)}", 'error')
+        progress_bar.empty()
+        status_text.empty()
+        error_msg = f"Synthesis error: {str(e)}"
+        st.error(f"❌ {error_msg}")
+        add_log(f"⚠️ {error_msg}", 'error')
+
+        import traceback
+        st.expander("🔍 Error Details").code(traceback.format_exc())
 
 def generate_proposal(user_topic):
-    """Stage 4: Research Proposal (Optional)"""
+    """Stage 4: Research Proposal"""
     if not st.session_state.synthesis:
         return
     
@@ -435,11 +478,10 @@ Generate a concrete research proposal. Format as JSON:
 st.title("🧠 AI Swarm Council")
 st.markdown("**4-Stage Collaborative Intelligence:** Diverse idea generation → Anonymous peer review → Superior synthesis → Research proposal")
 
-# Sidebar for API key and settings
+# Sidebar
 with st.sidebar:
     st.header("⚙️ Settings")
     
-    # API Key input
     api_key_input = st.text_input(
         "OpenRouter API Key",
         type="password",
@@ -448,11 +490,9 @@ with st.sidebar:
         placeholder="sk-or-v1-..."
     )
     
-    # Update session state when key changes
     if api_key_input != st.session_state.api_key:
         st.session_state.api_key = api_key_input
     
-    # Show status
     if st.session_state.api_key:
         st.success("✅ API Key Set")
     else:
@@ -467,7 +507,6 @@ with st.sidebar:
     
     st.divider()
     
-    # Model info
     st.subheader("🤖 Current Models")
     st.caption("**Agents:**")
     for agent in SWARM_AGENTS:
@@ -476,7 +515,6 @@ with st.sidebar:
     
     st.divider()
     
-    # Cost estimate
     st.subheader("💰 Cost Estimate")
     st.caption("Full 4-stage process: **$0.30-0.60**")
     st.caption("Stage 1: 5 models")
@@ -486,7 +524,6 @@ with st.sidebar:
     
     st.divider()
     
-    # Links
     st.markdown("""
     **Resources:**
     - [OpenRouter Models](https://openrouter.ai/models)
@@ -494,7 +531,6 @@ with st.sidebar:
     - [Get API Key](https://openrouter.ai/keys)
     """)
 
-# Show model configuration (moved to expandable section)
 with st.expander("🔍 Detailed Model Configuration", expanded=False):
     st.markdown("**Full Agent Model Assignments:**")
     for agent in SWARM_AGENTS:
@@ -502,7 +538,7 @@ with st.expander("🔍 Detailed Model Configuration", expanded=False):
     st.markdown(f"- ✨ **Synthesis & Proposal**: `{SYNTHESIS_MODEL}`")
     st.caption("All models accessed via OpenRouter API")
 
-# Process flow indicator - 4 STAGES
+# Process flow indicator
 st.markdown("### 🔄 AI Swarm Council Process")
 col1, col2, col3, col4 = st.columns(4)
 
@@ -557,10 +593,8 @@ if st.session_state.exploration is None:
             st.caption("💡 Stage 1: 5 agents with different perspectives will generate unique insights from their cognitive/clinical/assessment/technology/cross-cultural lenses")
 
 else:
-    # Show topic being explored
     st.info(f"**Your Topic:** {st.session_state.get('current_topic', 'Unknown')}")
 
-    # Stage transition buttons
     if st.session_state.exploration and not st.session_state.peer_reviews:
         st.success("✅ Stage 1 Complete: Ideas Generated!")
         st.markdown("**Next Step:** Conduct anonymous peer review where each agent critiques all proposals")
@@ -586,9 +620,7 @@ else:
     elif st.session_state.synthesis and not st.session_state.proposal:
         st.success("✅ Stage 3 Complete: Synthesis Ready!")
         st.markdown("**Optional:** Generate a concrete research proposal based on the synthesized insights")
-        # Proposal button is shown in the synthesis display section
 
-    # Start over button (always available)
     st.divider()
     if st.button("🔄 Start Over with New Topic"):
         for key in ['exploration', 'peer_reviews', 'synthesis', 'proposal', 'logs', 'current_topic']:
@@ -596,13 +628,12 @@ else:
                 del st.session_state[key]
         st.rerun()
 
-# Store current topic
 if 'topic_input' in st.session_state and st.session_state.topic_input:
     st.session_state.current_topic = st.session_state.topic_input
 
 st.divider()
 
-# Display logs if any
+# Display logs
 if st.session_state.logs:
     with st.expander("📋 Activity Log", expanded=False):
         for log in st.session_state.logs:
@@ -624,7 +655,6 @@ if st.session_state.exploration:
     
     for idx, agent_data in enumerate(st.session_state.exploration):
         with tabs[idx]:
-            # Show which model was used
             st.caption(f"🤖 Model: `{agent_data.get('model', 'Unknown')}`")
             
             col1, col2 = st.columns(2)
@@ -662,19 +692,15 @@ if st.session_state.peer_reviews:
 
     for idx, review_data in enumerate(st.session_state.peer_reviews):
         with tabs[idx]:
-            # Show which model was used
             st.caption(f"🤖 Model: `{review_data.get('model', 'Unknown')}`")
 
-            # Overall commentary
             st.markdown("### 📝 Overall Commentary")
             st.info(review_data['overallCommentary'])
 
-            # Ranking
             st.markdown("### 🏆 Ranking (Strongest to Weakest)")
             ranking_str = " → ".join([f"Idea #{i}" for i in review_data['ranking']])
             st.success(ranking_str)
 
-            # Detailed reviews for each idea
             st.markdown("### 📊 Detailed Reviews")
             for review in review_data['reviews']:
                 with st.expander(f"Idea #{review['ideaNumber']} - Detailed Critique"):
@@ -703,40 +729,32 @@ if st.session_state.synthesis:
     
     synthesis = st.session_state.synthesis
     
-    # Clarified Focus
     st.markdown("### 🎯 Clarified Research Focus")
     st.write(synthesis['clarifiedFocus'])
     
-    # Theoretical Foundations
     st.markdown("### 📚 Theoretical Foundations to Build On")
     for framework in synthesis['theoreticalFoundations']:
         st.markdown(f"✅ {framework}")
     
-    # Key Tensions
     st.markdown("### ⚡ Key Tensions to Resolve")
     for tension in synthesis['keyTensions']:
         st.markdown(f"⚠️ {tension}")
     
-    # Critical Questions
     st.markdown("### ❓ Critical Questions")
     for idx, question in enumerate(synthesis['criticalQuestions'], 1):
         st.markdown(f"**Q{idx}:** {question}")
     
-    # Integrated Perspectives
     st.markdown("### 🔗 Integrated Perspectives")
     st.write(synthesis['integratedPerspectives'])
 
-    # Peer Review Insights (NEW)
     if 'peerReviewInsights' in synthesis:
         st.markdown("### 🔍 Peer Review Insights")
         st.write(synthesis['peerReviewInsights'])
 
-    # Recommended Next Steps
     st.markdown("### 🚀 Recommended Next Steps")
     for idx, step in enumerate(synthesis['recommendedNextSteps'], 1):
         st.markdown(f"{idx}. {step}")
     
-    # Proposal generation button
     st.divider()
     if st.session_state.proposal is None:
         col1, col2 = st.columns([1, 3])
