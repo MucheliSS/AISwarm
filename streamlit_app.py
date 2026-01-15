@@ -383,25 +383,85 @@ Create a synthesized understanding that represents the collective wisdom AND add
         if not response:
             raise ValueError("Empty response from synthesis model")
 
-        json_start = response.find('{')
-        json_end = response.rfind('}') + 1
-
-        if json_start < 0 or json_end <= json_start:
+        # Enhanced JSON extraction with multiple strategies
+        json_str = None
+        synthesis = None
+        
+        # Strategy 1: Try to find JSON in markdown code block (```json ... ```)
+        import re
+        code_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response, re.DOTALL)
+        if code_block_match:
+            json_str = code_block_match.group(1)
+            add_log('Found JSON in markdown code block', 'info')
+        
+        # Strategy 2: Find the largest JSON object in the response
+        if json_str is None:
+            # Find all potential JSON objects
+            json_candidates = []
+            brace_count = 0
+            start_idx = None
+            
+            for i, char in enumerate(response):
+                if char == '{':
+                    if brace_count == 0:
+                        start_idx = i
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    if brace_count == 0 and start_idx is not None:
+                        candidate = response[start_idx:i+1]
+                        json_candidates.append(candidate)
+                        start_idx = None
+            
+            # Try each candidate, prefer the largest valid one
+            for candidate in sorted(json_candidates, key=len, reverse=True):
+                try:
+                    test_parse = json.loads(candidate)
+                    # Check if it has expected synthesis fields
+                    if any(key in test_parse for key in ['clarifiedFocus', 'theoreticalFoundations', 'keyTensions']):
+                        json_str = candidate
+                        add_log(f'Found valid JSON candidate (length: {len(candidate)} chars)', 'info')
+                        break
+                except json.JSONDecodeError:
+                    continue
+        
+        # Strategy 3: Simple first/last brace extraction (original method)
+        if json_str is None:
+            json_start = response.find('{')
+            json_end = response.rfind('}') + 1
+            if json_start >= 0 and json_end > json_start:
+                json_str = response[json_start:json_end]
+                add_log('Using simple brace extraction', 'info')
+        
+        if json_str is None:
             st.error("⚠️ Could not find JSON in response. Raw response:")
-            st.code(response[:500])
+            st.code(response[:1000] if len(response) > 1000 else response)
             add_log('JSON parsing failed - no valid JSON found', 'error')
             raise ValueError("No valid JSON found in response")
 
-        json_str = response[json_start:json_end]
         add_log(f'Extracted JSON (length: {len(json_str)} chars)', 'info')
 
-        try:
-            synthesis = json.loads(json_str)
-        except json.JSONDecodeError as je:
-            st.error(f"⚠️ JSON parsing error: {str(je)}")
-            st.code(json_str[:500])
-            add_log(f'JSON decode error: {str(je)}', 'error')
-            raise
+        # Try parsing with repair attempts
+        parse_attempts = [
+            ("direct", json_str),
+            ("fix_newlines", json_str.replace('\n', ' ').replace('\r', '')),
+            ("fix_escapes", json_str.replace('\\"', '"').replace('\\n', ' ')),
+        ]
+        
+        for attempt_name, attempt_str in parse_attempts:
+            try:
+                synthesis = json.loads(attempt_str)
+                add_log(f'JSON parsed successfully (method: {attempt_name})', 'info')
+                break
+            except json.JSONDecodeError as je:
+                add_log(f'Parse attempt "{attempt_name}" failed: {str(je)}', 'info')
+                continue
+        
+        if synthesis is None:
+            st.error(f"⚠️ JSON parsing error after all attempts")
+            st.code(json_str[:1000] if len(json_str) > 1000 else json_str)
+            add_log(f'JSON decode error after all repair attempts', 'error')
+            raise ValueError("Could not parse JSON after multiple attempts")
 
         required_fields = ['clarifiedFocus', 'theoreticalFoundations', 'keyTensions',
                           'criticalQuestions', 'integratedPerspectives', 'recommendedNextSteps']
